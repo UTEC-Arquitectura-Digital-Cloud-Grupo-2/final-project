@@ -38,54 +38,67 @@ resource "aws_lambda_function" "hello_lambda" {
   }
 }
 
-# API Gateway for Each Lambda Function
+# Create a single API Gateway
 resource "aws_api_gateway_rest_api" "api" {
-  for_each = aws_lambda_function.hello_lambda
-  name     = "${each.key}_api"
+  name = "grupo2_apigw"
 }
+
+# Create resources for each Lambda function
+resource "aws_api_gateway_resource" "lambda_resource" {
+  for_each    = local.apis
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_rest_api.api.root_resource_id
+  path_part   = each.key
+}
+
+# Create methods for each resource
 resource "aws_api_gateway_method" "root" {
-  for_each      = aws_api_gateway_rest_api.api
-  rest_api_id   = each.value.id
-  resource_id   = each.value.root_resource_id  # Use the root resource directly
+  for_each      = local.apis
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.lambda_resource[each.key].id
   http_method   = "ANY"
   authorization = "NONE"
 }
 
+# Create integrations for each Lambda
 resource "aws_api_gateway_integration" "lambda" {
-  for_each    = aws_api_gateway_rest_api.api
-  rest_api_id = each.value.id
-  resource_id = each.value.root_resource_id    # Use the root resource directly
-  http_method = aws_api_gateway_method.root[each.key].http_method
+  for_each                = local.apis
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.lambda_resource[each.key].id
+  http_method             = aws_api_gateway_method.root[each.key].http_method
   integration_http_method = "POST"
-  type        = "AWS_PROXY"
-  uri         = aws_lambda_function.hello_lambda[each.key].invoke_arn
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.hello_lambda[each.key].invoke_arn
 }
 
+# Update Lambda permissions
 resource "aws_lambda_permission" "apigw" {
-  for_each      = aws_api_gateway_rest_api.api
+  for_each      = local.apis
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.hello_lambda[each.key].function_name
   principal     = "apigateway.amazonaws.com"
 
-  source_arn = "${aws_api_gateway_rest_api.api[each.key].execution_arn}/*/*"
+  source_arn = "${aws_api_gateway_rest_api.api.execution_arn}/*/${aws_api_gateway_method.root[each.key].http_method}/${each.key}"
 }
 
+# Single deployment
 resource "aws_api_gateway_deployment" "deployment" {
-  for_each    = aws_api_gateway_rest_api.api
-  rest_api_id = each.value.id
+  rest_api_id = aws_api_gateway_rest_api.api.id
 
    # Add explicit dependencies
   depends_on = [
     aws_api_gateway_integration.lambda,
-    aws_api_gateway_method.root
+    aws_api_gateway_method.root,
+    aws_api_gateway_resource.lambda_resource
   ]
 
    # Add triggers to force new deployment when integration or methods change
   triggers = {
     redeployment = sha1(jsonencode([
-      aws_api_gateway_method.root[each.key],
-      aws_api_gateway_integration.lambda[each.key]
+      aws_api_gateway_resource.lambda_resource,
+      aws_api_gateway_method.root,
+      aws_api_gateway_integration.lambda
     ]))
   }
 
@@ -94,15 +107,15 @@ resource "aws_api_gateway_deployment" "deployment" {
   }
 }
 
+# Single stage
 resource "aws_api_gateway_stage" "stage" {
-  for_each    = aws_api_gateway_rest_api.api
-  deployment_id = aws_api_gateway_deployment.deployment[each.key].id
-  rest_api_id = aws_api_gateway_rest_api.api[each.key].id
-  stage_name  = "prod"
+  deployment_id = aws_api_gateway_deployment.deployment.id
+  rest_api_id  = aws_api_gateway_rest_api.api.id
+  stage_name   = "prod"
 }
 
 output "api_endpoints" {
   value = {
-    for key, _ in local.apis : key => "https://${aws_api_gateway_rest_api.api[key].id}.execute-api.us-east-1.amazonaws.com/prod/"
+    for key, _ in local.apis : key => "https://${aws_api_gateway_rest_api.api.id}.execute-api.us-east-1.amazonaws.com/prod/${key}"
   }
 }
