@@ -16,20 +16,29 @@ resource "aws_iam_policy_attachment" "lambda_logs" {
 
 locals {
   apis = {
-    "grupo2_lambda_1" = "lambda_hello_1.zip"
-    "grupo2_lambda_2" = "lambda_hello_2.zip"
-    "grupo2_lambda_3" = "lambda_hello_3.zip"
+    "grupo2_lambda_1" = "lambda1"
+    "grupo2_lambda_2" = "lambda2"
+    "grupo2_lambda_3" = "lambda3"
   }
 }
 
+# Create zip files for Lambda functions
+data "archive_file" "lambda_zip" {
+  for_each    = local.apis
+  type        = "zip"
+  source_file = "../backend/${each.value}/lambda_hello.py"
+  output_path = "../build/${each.value}.zip"
+}
+
+
 resource "aws_lambda_function" "hello_lambda" {
-  for_each      = local.apis
-  function_name = each.key
-  role          = data.aws_iam_role.lambda_role.arn
-  runtime       = "python3.9"
-  handler       = "lambda_hello.lambda_handler"
-  filename      = "${path.module}/${each.value}"
-  source_code_hash = filebase64sha256("${path.module}/${each.value}")
+  for_each         = local.apis
+  function_name    = each.key
+  role             = data.aws_iam_role.lambda_role.arn
+  runtime          = "python3.9"
+  handler          = "lambda_hello.lambda_handler"
+  filename         = data.archive_file.lambda_zip[each.key].output_path
+  source_code_hash = data.archive_file.lambda_zip[each.key].output_base64sha256
 
   environment {
     variables = {
