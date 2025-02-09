@@ -87,6 +87,12 @@ resource "aws_lambda_permission" "apigw" {
 resource "aws_api_gateway_deployment" "deployment" {
   for_each    = aws_api_gateway_rest_api.api
   rest_api_id = each.value.id
+}
+
+resource "aws_api_gateway_stage" "stage" {
+  for_each    = aws_api_gateway_rest_api.api
+  deployment_id = aws_api_gateway_deployment.deployment[each.key].id
+  rest_api_id = aws_api_gateway_rest_api.api[each.key].id
   stage_name  = "prod"
 }
 
