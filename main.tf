@@ -23,30 +23,34 @@ resource "aws_iam_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Create 3 Lambda functions with API Gateway
 locals {
-  apis = ["api1", "api2", "api3"]
+  apis = {
+    api1 = "01_ms/lambda_hello.zip"
+    api2 = "02_ms/lambda_hello.zip"
+    api3 = "03_ms/lambda_hello.zip"
+  }
 }
 
 resource "aws_lambda_function" "hello_lambda" {
-  for_each      = toset(local.apis)
-  function_name = each.value
+  for_each      = local.apis
+  function_name = each.key
   role          = aws_iam_role.lambda_role.arn
   runtime       = "python3.9"
   handler       = "lambda_hello.lambda_handler"
-  filename      = "${path.module}/lambda_hello.zip"
-  source_code_hash = filebase64sha256("${path.module}/lambda_hello.zip")
+  filename      = "${path.module}/${each.value}"
+  source_code_hash = filebase64sha256("${path.module}/${each.value}")
 
   environment {
     variables = {
-      API_NAME = each.value
+      API_NAME = each.key
     }
   }
 }
 
+# API Gateway for Each Lambda Function
 resource "aws_api_gateway_rest_api" "api" {
-  for_each = toset(local.apis)
-  name     = "${each.value}_api"
+  for_each = aws_lambda_function.hello_lambda
+  name     = "${each.key}_api"
 }
 
 resource "aws_api_gateway_resource" "proxy" {
@@ -98,6 +102,6 @@ resource "aws_api_gateway_stage" "stage" {
 
 output "api_endpoints" {
   value = {
-    for api in local.apis : api => "https://${aws_api_gateway_rest_api.api[api].id}.execute-api.${var.aws_region}.amazonaws.com/prod/"
+    for api in local.apis : api => "https://${aws_api_gateway_rest_api.api[api].id}.execute-api.us-east-1.amazonaws.com/prod/"
   }
 }
