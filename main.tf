@@ -16,9 +16,9 @@ resource "aws_iam_policy_attachment" "lambda_logs" {
 
 locals {
   apis = {
-    api1 = "lambda_hello_1.zip"
-    api2 = "lambda_hello_2.zip"
-    api3 = "lambda_hello_3.zip"
+    "grupo2_lambda_1" = "lambda_hello_1.zip"
+    "grupo2_lambda_2" = "lambda_hello_2.zip"
+    "grupo2_lambda_3" = "lambda_hello_3.zip"
   }
 }
 
@@ -43,18 +43,10 @@ resource "aws_api_gateway_rest_api" "api" {
   for_each = aws_lambda_function.hello_lambda
   name     = "${each.key}_api"
 }
-
-resource "aws_api_gateway_resource" "proxy" {
-  for_each    = aws_api_gateway_rest_api.api
-  rest_api_id = each.value.id
-  parent_id   = each.value.root_resource_id
-  path_part   = "{proxy+}"
-}
-
-resource "aws_api_gateway_method" "proxy" {
+resource "aws_api_gateway_method" "root" {
   for_each      = aws_api_gateway_rest_api.api
   rest_api_id   = each.value.id
-  resource_id   = aws_api_gateway_resource.proxy[each.key].id
+  resource_id   = each.value.root_resource_id  # Use the root resource directly
   http_method   = "ANY"
   authorization = "NONE"
 }
@@ -62,8 +54,8 @@ resource "aws_api_gateway_method" "proxy" {
 resource "aws_api_gateway_integration" "lambda" {
   for_each    = aws_api_gateway_rest_api.api
   rest_api_id = each.value.id
-  resource_id = aws_api_gateway_resource.proxy[each.key].id
-  http_method = aws_api_gateway_method.proxy[each.key].http_method
+  resource_id = each.value.root_resource_id    # Use the root resource directly
+  http_method = aws_api_gateway_method.root[each.key].http_method
   integration_http_method = "POST"
   type        = "AWS_PROXY"
   uri         = aws_lambda_function.hello_lambda[each.key].invoke_arn
@@ -86,14 +78,13 @@ resource "aws_api_gateway_deployment" "deployment" {
    # Add explicit dependencies
   depends_on = [
     aws_api_gateway_integration.lambda,
-    aws_api_gateway_method.proxy
+    aws_api_gateway_method.root
   ]
 
    # Add triggers to force new deployment when integration or methods change
   triggers = {
     redeployment = sha1(jsonencode([
-      aws_api_gateway_resource.proxy[each.key],
-      aws_api_gateway_method.proxy[each.key],
+      aws_api_gateway_method.root[each.key],
       aws_api_gateway_integration.lambda[each.key]
     ]))
   }
