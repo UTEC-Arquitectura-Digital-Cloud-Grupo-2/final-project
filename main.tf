@@ -2,39 +2,30 @@ provider "aws" {
   region = "us-east-1"  # Change to your preferred region
 }
 
-# IAM Role for Lambda
-resource "aws_iam_role" "lambda_role" {
+# Reference existing IAM Role for Lambda
+data "aws_iam_role" "lambda_role" {
   name = "lambda_exec_role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = { Service = "lambda.amazonaws.com" }
-    }]
-  })
 }
 
 # IAM Policy for Logging
 resource "aws_iam_policy_attachment" "lambda_logs" {
   name       = "lambda_logs"
-  roles      = [aws_iam_role.lambda_role.name]
+  roles      = [data.aws_iam_role.lambda_role.name]
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 locals {
   apis = {
-    api1 = "01_ms/lambda_hello.zip"
-    api2 = "02_ms/lambda_hello.zip"
-    api3 = "03_ms/lambda_hello.zip"
+    api1 = "lambda_hello_1.zip"
+    api2 = "lambda_hello_2.zip"
+    api3 = "lambda_hello_3.zip"
   }
 }
 
 resource "aws_lambda_function" "hello_lambda" {
   for_each      = local.apis
   function_name = each.key
-  role          = aws_iam_role.lambda_role.arn
+  role          = data.aws_iam_role.lambda_role.arn
   runtime       = "python3.9"
   handler       = "lambda_hello.lambda_handler"
   filename      = "${path.module}/${each.value}"
@@ -91,6 +82,25 @@ resource "aws_lambda_permission" "apigw" {
 resource "aws_api_gateway_deployment" "deployment" {
   for_each    = aws_api_gateway_rest_api.api
   rest_api_id = each.value.id
+
+   # Add explicit dependencies
+  depends_on = [
+    aws_api_gateway_integration.lambda,
+    aws_api_gateway_method.proxy
+  ]
+
+   # Add triggers to force new deployment when integration or methods change
+  triggers = {
+    redeployment = sha1(jsonencode([
+      aws_api_gateway_resource.proxy[each.key],
+      aws_api_gateway_method.proxy[each.key],
+      aws_api_gateway_integration.lambda[each.key]
+    ]))
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_api_gateway_stage" "stage" {
@@ -102,6 +112,6 @@ resource "aws_api_gateway_stage" "stage" {
 
 output "api_endpoints" {
   value = {
-    for api in local.apis : api => "https://${aws_api_gateway_rest_api.api[api].id}.execute-api.us-east-1.amazonaws.com/prod/"
+    for key, _ in local.apis : key => "https://${aws_api_gateway_rest_api.api[key].id}.execute-api.us-east-1.amazonaws.com/prod/"
   }
 }
