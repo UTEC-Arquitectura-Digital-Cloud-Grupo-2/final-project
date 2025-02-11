@@ -1,5 +1,5 @@
 {
-  "child1": "http://localhost:4201/remoteEntry.json",
-  "child2": "http://localhost:4202/remoteEntry.json",
-  "child3": "http://localhost:4203/remoteEntry.json"
+  "child1": "http://localhost:8081/remoteEntry.json",
+  "child2": "http://localhost:8082/remoteEntry.json",
+  "child3": "http://localhost:8083/remoteEntry.json"
 }
